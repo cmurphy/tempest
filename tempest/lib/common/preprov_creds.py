@@ -107,7 +107,7 @@ class PreProvisionedCredentialProvider(cred_provider.CredentialProvider):
     def get_hash_dict(cls, accounts, admin_role,
                       object_storage_operator_role=None,
                       object_storage_reseller_admin_role=None):
-        hash_dict = {'roles': {}, 'creds': {}, 'networks': {}}
+        hash_dict = {'roles': {}, 'creds': {}, 'networks': {}, 'types': {}}
 
         # Loop over the accounts read from the yaml file
         for account in accounts:
@@ -154,6 +154,11 @@ class PreProvisionedCredentialProvider(cred_provider.CredentialProvider):
                         msg = ("Type 'reseller_admin' configured, but no "
                                "object_storage_reseller_admin_role specified")
                         raise lib_exc.InvalidCredentials(msg)
+                else:
+                    if type in hash_dict['types']:
+                        hash_dict['types'][type].append(temp_hash_key)
+                    else:
+                        hash_dict['types'][type] = [temp_hash_key]
             # Populate the network subdict
             for resource in resources:
                 if resource == 'network':
@@ -202,7 +207,7 @@ class PreProvisionedCredentialProvider(cred_provider.CredentialProvider):
                'the credentials for this allocation request' % ','.join(names))
         raise lib_exc.InvalidCredentials(msg)
 
-    def _get_match_hash_list(self, roles=None):
+    def _get_match_hash_list(self, roles=None, type=None):
         hashes = []
         if roles:
             # Loop over all the creds for each role in the subdict and generate
@@ -220,6 +225,8 @@ class PreProvisionedCredentialProvider(cred_provider.CredentialProvider):
             for hash_list in hashes[1:]:
                 temp_list = temp_list & set(hash_list)
             hashes = temp_list
+        elif type:
+            hashes = self.hash_dict['types'].get(type)
         else:
             hashes = self.hash_dict['creds'].keys()
         # NOTE(mtreinish): admin is a special case because of the increased
@@ -240,8 +247,8 @@ class PreProvisionedCredentialProvider(cred_provider.CredentialProvider):
         temp_creds.pop('password')
         return temp_creds
 
-    def _get_creds(self, roles=None):
-        useable_hashes = self._get_match_hash_list(roles)
+    def _get_creds(self, roles=None, type=None):
+        useable_hashes = self._get_match_hash_list(roles, type)
         if not useable_hashes:
             msg = 'No users configured for type/roles %s' % roles
             raise lib_exc.InvalidCredentials(msg)
@@ -296,6 +303,40 @@ class PreProvisionedCredentialProvider(cred_provider.CredentialProvider):
         net_creds = self._get_creds()
         self._creds['alt'] = net_creds
         return net_creds
+
+    def _get_creds_type(self, type):
+        if self._creds.get(type):
+            return self._creds.get(type)
+        net_creds = self._get_creds(type=type)
+        self._creds[type] = net_creds
+        return net_creds
+
+    def get_system_admin_creds(self):
+        return self._get_creds_type('system_admin')
+
+    def get_system_member_creds(self):
+        return self._get_creds_type('system_member')
+
+    def get_system_reader_creds(self):
+        return self._get_creds_type('system_reader')
+
+    def get_domain_admin_creds(self):
+        return self._get_creds_type('domain_admin')
+
+    def get_domain_member_creds(self):
+        return self._get_creds_type('domain_member')
+
+    def get_domain_reader_creds(self):
+        return self._get_creds_type('domain_reader')
+
+    def get_project_admin_creds(self):
+        return self._get_creds_type('project_admin')
+
+    def get_project_member_creds(self):
+        return self._get_creds_type('project_member')
+
+    def get_project_reader_creds(self):
+        return self._get_creds_type('project_reader')
 
     def get_creds_by_roles(self, roles, force_new=False):
         roles = list(set(roles))

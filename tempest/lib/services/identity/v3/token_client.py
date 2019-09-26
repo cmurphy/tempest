@@ -52,7 +52,7 @@ class V3TokenClient(rest_client.RestClient):
              project_name=None, user_domain_id=None, user_domain_name=None,
              project_domain_id=None, project_domain_name=None, domain_id=None,
              domain_name=None, token=None, app_cred_id=None,
-             app_cred_secret=None):
+             app_cred_secret=None, system=None):
         """Obtains a token from the authentication service
 
         :param user_id: user id
@@ -135,6 +135,8 @@ class V3TokenClient(rest_client.RestClient):
             creds['auth']['scope'] = dict(domain={'id': domain_id})
         elif domain_name:
             creds['auth']['scope'] = dict(domain={'name': domain_name})
+        elif system:
+            creds['auth']['scope'] = dict(system={'all': True})
 
         body = json.dumps(creds, sort_keys=True)
         resp, body = self.post(self.auth_url, body=body)
