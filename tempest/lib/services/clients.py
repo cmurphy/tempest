@@ -351,10 +351,10 @@ class ServiceClients(object):
         # Creates an auth provider for the credentials
         if self.credentials.project_id or self.credentials.project_name:
             scope = 'project'
-        elif self.credentials.domain_id or self.credentials.domain_name:
-            scope = 'domain'
         elif self.credentials.system:
             scope = 'system'
+        elif self.credentials.domain_id or self.credentials.domain_name:
+            scope = 'domain'
         else:
             scope = 'project'
         self.auth_provider = auth_provider_class(

@@ -89,6 +89,13 @@ class RolesClient(rest_client.RestClient):
         self.expected_success(204, resp.status)
         return rest_client.ResponseBody(resp, body)
 
+    def create_user_role_on_system(self, user_id, role_id):
+        """Add roles to a user on the system."""
+        resp, body = self.put('system/users/%s/roles/%s' %
+                              (user_id, role_id), None)
+        self.expected_success(204, resp.status)
+        return rest_client.ResponseBody(resp, body)
+
     def list_user_roles_on_project(self, project_id, user_id):
         """list roles of a user on a project."""
         resp, body = self.get('projects/%s/users/%s/roles' %

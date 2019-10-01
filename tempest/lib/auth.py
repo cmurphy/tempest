@@ -471,7 +471,7 @@ class KeystoneV3AuthProvider(KeystoneAuthProvider):
         return auth_params
 
     def _fill_credentials(self, auth_data_body):
-        # project or domain, depending on the scope
+        # project, domain, or system depending on the scope
         project = auth_data_body.get('project', None)
         domain = auth_data_body.get('domain', None)
         system = auth_data_body.get('system', None)
@@ -834,6 +834,7 @@ class KeystoneV3Credentials(Credentials):
         - Project name and its domain id/name
         - Domain id
         - Domain name
+        - System
         """
         valid_user_domain = any(
             [self.user_domain_id is not None,

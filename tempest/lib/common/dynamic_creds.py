@@ -157,7 +157,7 @@ class DynamicCredentialProvider(cred_provider.CredentialProvider):
                     os.network.PortsClient(),
                     os.network.SecurityGroupsClient())
 
-    def _create_creds(self, admin=False, roles=None):
+    def _create_creds(self, admin=False, roles=None, scope='project'):
         """Create credentials with random name.
 
         Creates project and user. When admin flag is True create user
@@ -172,25 +172,46 @@ class DynamicCredentialProvider(cred_provider.CredentialProvider):
         """
         root = self.name
 
-        project_name = data_utils.rand_name(root, prefix=self.resource_prefix)
-        project_desc = project_name + "-desc"
-        project = self.creds_client.create_project(
-            name=project_name, description=project_desc)
+        # scope can be either project, domain, or system
+        if scope == 'project':
+            project_name = data_utils.rand_name(root, prefix=self.resource_prefix)
+            project_desc = project_name + "-desc"
+            project = self.creds_client.create_project(
+                name=project_name, description=project_desc)
+            # NOTE(andreaf) User and project can be distinguished from the context,
+            # having the same ID in both makes it easier to match them and debug.
+            username = project_name + '-project'
+        elif scope == 'domain':
+            domain_name = data_utils.rand_name(root, prefix=self.resource_prefix)
+            domain_desc = domain_name + "-desc"
+            domain = self.creds_client.create_domain(
+                name=domain_name, description=domain_desc)
+            username = domain_name + '-domain'
+        elif scope == 'system':
+            prefix = data_utils.rand_name(root, prefix=self.resource_prefix)
+            username = prefix + '-system'
+        else:
+            raise Exception
 
-        # NOTE(andreaf) User and project can be distinguished from the context,
-        # having the same ID in both makes it easier to match them and debug.
-        username = project_name
+        if admin:
+            username += '-admin'
+        elif roles and len(roles) == 1:
+            username += '-' + roles[0]
         user_password = data_utils.rand_password()
-        email = data_utils.rand_name(
-            root, prefix=self.resource_prefix) + "@example.com"
         user = self.creds_client.create_user(
-            username, user_password, project, email)
+            username, user_password)
         role_assigned = False
         if admin:
-            self.creds_client.assign_user_role(user, project, self.admin_role)
+            if scope == 'project':
+                self.creds_client.assign_user_role(user, project, self.admin_role)
+            elif scope == 'domain':
+                self.creds_client.assign_user_role_on_domain(user, self.admin_role, domain)
+            elif scope == 'system':
+                self.creds_client.assign_user_role_on_system(user, self.admin_role)
             role_assigned = True
             if (self.identity_version == 'v3' and
-                    self.identity_admin_domain_scope):
+                    self.identity_admin_domain_scope and
+                    not scope == 'system'):
                 self.creds_client.assign_user_role_on_domain(
                     user, self.identity_admin_role)
         # Add roles specified in config file
@@ -200,7 +221,12 @@ class DynamicCredentialProvider(cred_provider.CredentialProvider):
         # Add roles requested by caller
         if roles:
             for role in roles:
-                self.creds_client.assign_user_role(user, project, role)
+                if scope == 'project':
+                    self.creds_client.assign_user_role(user, project, role)
+                elif scope == 'domain':
+                    self.creds_client.assign_user_role_on_domain(user, role, domain)
+                elif scope == 'system':
+                    self.creds_client.assign_user_role_on_system(user, role)
                 role_assigned = True
         # NOTE(mtreinish) For a user to have access to a project with v3 auth
         # it must beassigned a role on the project. So we need to ensure that
@@ -212,7 +238,12 @@ class DynamicCredentialProvider(cred_provider.CredentialProvider):
                 LOG.warning('Member role already exists, ignoring conflict.')
             self.creds_client.assign_user_role(user, project, 'Member')
 
-        creds = self.creds_client.get_credentials(user, project, user_password)
+        if scope == 'project':
+            creds = self.creds_client.get_credentials(user, project, user_password)
+        elif scope == 'domain':
+            creds = self.creds_client.get_credentials(user, None, user_password, domain=domain)
+        elif scope == 'system':
+            creds = self.creds_client.get_credentials(user, None, user_password, system=True)
         return cred_provider.TestResources(creds)
 
     def _create_network_resources(self, tenant_id):
@@ -327,15 +358,15 @@ class DynamicCredentialProvider(cred_provider.CredentialProvider):
         self.routers_admin_client.add_router_interface(router_id,
                                                        subnet_id=subnet_id)
 
-    def get_credentials(self, credential_type):
-        if self._creds.get(str(credential_type)):
+    def get_credentials(self, credential_type, scope=None):
+        if not scope and self._creds.get(str(credential_type)):
             credentials = self._creds[str(credential_type)]
         else:
             if credential_type in ['primary', 'alt', 'admin']:
                 is_admin = (credential_type == 'admin')
                 credentials = self._create_creds(admin=is_admin)
             else:
-                credentials = self._create_creds(roles=credential_type)
+                credentials = self._create_creds(roles=credential_type, scope=scope)
             self._creds[str(credential_type)] = credentials
             # Maintained until tests are ported
             LOG.info("Acquired dynamic creds:\n"
@@ -357,6 +388,33 @@ class DynamicCredentialProvider(cred_provider.CredentialProvider):
 
     def get_alt_creds(self):
         return self.get_credentials('alt')
+
+    def get_system_admin_creds(self):
+        return self.get_credentials(['admin'], scope='system')
+
+    def get_system_member_creds(self):
+        return self.get_credentials(['member'], scope='system')
+
+    def get_system_reader_creds(self):
+        return self.get_credentials(['reader'], scope='system')
+
+    def get_domain_admin_creds(self):
+        return self.get_credentials(['admin'], scope='domain')
+
+    def get_domain_member_creds(self):
+        return self.get_credentials(['member'], scope='domain')
+
+    def get_domain_reader_creds(self):
+        return self.get_credentials(['reader'], scope='domain')
+
+    def get_project_admin_creds(self):
+        return self.get_credentials(['admin'], scope='project')
+
+    def get_project_member_creds(self):
+        return self.get_credentials(['member'], scope='project')
+
+    def get_project_reader_creds(self):
+        return self.get_credentials(['reader'], scope='project')
 
     def get_creds_by_roles(self, roles, force_new=False):
         roles = list(set(roles))

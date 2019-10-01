@@ -92,10 +92,15 @@ AuthGroup = [
                     "isolation to create users and projects",
                secret=True),
     cfg.StrOpt('admin_domain_name',
-               default='Default',
                help="Admin domain name for authentication (Keystone V3). "
                     "The same domain applies to user and project"),
-]
+    cfg.StrOpt('admin_user_domain_name',
+               help="Namespace domain of admin user"),
+    cfg.BoolOpt('admin_system',
+                help="Whether the admin user should be scoped to the system. "
+                     "When [oslo_policy]/enforce_scope is set to true for "
+                     "keystone, this must also be true."),
+    ]
 
 identity_group = cfg.OptGroup(name='identity',
                               title="Keystone Configuration Options")

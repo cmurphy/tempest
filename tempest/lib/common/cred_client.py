@@ -39,11 +39,15 @@ class CredsClient(object):
         self.projects_client = projects_client
         self.roles_client = roles_client
 
-    def create_user(self, username, password, project, email):
+    def create_user(self, username, password, project=None, email=None):
         params = {'name': username,
-                  'password': password,
-                  self.project_id_param: project['id'],
-                  'email': email}
+                  'password': password}
+        # with keystone v3, a default project is not required
+        if project:
+            params[self.project_id_param] = project['id']
+        # email is not a first-class attribute of a user
+        if email:
+            params['email'] = email
         user = self.users_client.create_user(**params)
         if 'user' in user:
             user = user['user']
@@ -153,26 +157,44 @@ class V3CredsClient(CredsClient):
             domain_id=self.creds_domain['id'])['project']
         return project
 
+    def create_domain(self, name, description):
+        domain = self.domains_client.create_domain(
+            name=name, description=description)['domain']
+        return domain
+
     def delete_project(self, project_id):
         self.projects_client.delete_project(project_id)
 
-    def get_credentials(self, user, project, password):
+    def get_credentials(self, user, project, password, system=None, domain=None):
         # User, project and domain already include both ID and name here,
         # so there's no need to use the fill_in mode.
         # NOTE(andreaf) We need to set all fields in the returned credentials.
         # Scope is then used to pick only those relevant for the type of
         # token needed by each service client.
+        if project:
+            project_name = project['name']
+            project_id = project['id']
+        else:
+            project_name = None
+            project_id = None
+        if domain:
+            domain_name = domain['name']
+            domain_id = domain['id']
+        else:
+            domain_name = None
+            domain_id = None
         return auth.get_credentials(
             auth_url=None,
             fill_in=False,
             identity_version='v3',
             username=user['name'], user_id=user['id'],
-            project_name=project['name'], project_id=project['id'],
+            project_name=project_name, project_id=project_id,
             password=password,
             project_domain_id=self.creds_domain['id'],
             project_domain_name=self.creds_domain['name'],
-            domain_id=self.creds_domain['id'],
-            domain_name=self.creds_domain['name'])
+            domain_id=domain_id,
+            domain_name=domain_name,
+            system=system)
 
     def assign_user_role_on_domain(self, user, role_name, domain=None):
         """Assign the specified role on a domain
@@ -197,6 +219,22 @@ class V3CredsClient(CredsClient):
             LOG.debug("Role %s already assigned on domain %s for user %s",
                       role['id'], domain['id'], user['id'])
 
+    def assign_user_role_on_system(self, user, role_name):
+        """ Assign the specified role on the system
+
+        :param user: a user dict
+        :param role_name: name of the role to be assigned
+        """
+        role = self._check_role_exists(role_name)
+        if not role:
+            msg = 'No "%s" role found' % role_name
+            raise lib_exc.NotFound(msg)
+        try:
+            self.roles_client.create_user_role_on_system(
+                user['id'], role['id'])
+        except lib_exc.Conflict:
+            LOG.debug("Role %s already assigned on domain %s for user %s",
+                      role['id'], domain['id'], user['id'])
 
 def get_creds_client(identity_client,
                      projects_client,
